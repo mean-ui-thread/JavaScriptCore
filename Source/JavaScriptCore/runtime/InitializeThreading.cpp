@@ -49,8 +49,6 @@
 #include <wtf/dtoa.h>
 #include <wtf/dtoa/cached-powers.h>
 
-using namespace WTF;
-
 namespace JSC {
 
 static_assert(sizeof(bool) == 1, "LLInt and JIT assume sizeof(bool) is always 1 when touching it directly from assembly code.");
@@ -83,7 +81,8 @@ void initializeThreading()
         thread.setSavedLastStackTop(thread.stack().origin());
 
 #if ENABLE(WEBASSEMBLY)
-        Wasm::Thunks::initialize();
+        if (Options::useWebAssembly())
+            Wasm::Thunks::initialize();
 #endif
 
         if (VM::isInMiniMode())

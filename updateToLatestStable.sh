@@ -15,8 +15,8 @@ WEBKIT_DIR=`find . -type d -name "webkitgtk-*"`
 
 if [ -d ${WEBKIT_DIR} ]; then 
 	cp -R ${WEBKIT_DIR}/* .
-	git checkout Source/ThirdParty/gtest/CMakeLists.txt
-	pushd Source/Thirdparty
+	pushd Source/ThirdParty
+	git checkout gtest/CMakeLists.txt
 	svn checkout https://github.com/WebKit/webkit/trunk/Source/ThirdParty/capstone
 	popd
 fi
