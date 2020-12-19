@@ -43,6 +43,10 @@
 
 namespace JSC {
 
+namespace Wasm {
+enum class CompilationMode : uint8_t;
+}
+
 class CodeBlock;
 
 // LinkBuffer:
@@ -86,24 +90,25 @@ public:
         , m_completed(false)
 #endif
     {
-        linkCode(macroAssembler, ownerUID, effort);
+        UNUSED_PARAM(ownerUID);
+        linkCode(macroAssembler, effort);
     }
 
     template<PtrTag tag>
     LinkBuffer(MacroAssembler& macroAssembler, MacroAssemblerCodePtr<tag> code, size_t size, JITCompilationEffort effort = JITCompilationMustSucceed, bool shouldPerformBranchCompaction = true)
         : m_size(size)
         , m_didAllocate(false)
-        , m_code(code.template retagged<LinkBufferPtrTag>())
 #ifndef NDEBUG
         , m_completed(false)
 #endif
+        , m_code(code.template retagged<LinkBufferPtrTag>())
     {
 #if ENABLE(BRANCH_COMPACTION)
         m_shouldPerformBranchCompaction = shouldPerformBranchCompaction;
 #else
         UNUSED_PARAM(shouldPerformBranchCompaction);
 #endif
-        linkCode(macroAssembler, 0, effort);
+        linkCode(macroAssembler, effort);
     }
 
     ~LinkBuffer()
@@ -118,6 +123,13 @@ public:
     bool isValid() const
     {
         return !didFailToAllocate();
+    }
+
+    void setIsJumpIsland()
+    {
+#if ASSERT_ENABLED
+        m_isJumpIsland = true;
+#endif
     }
     
     // These methods are used to link or set values at code generation time.
@@ -317,12 +329,12 @@ private:
         return m_code.dataLocation();
     }
     
-    void allocate(MacroAssembler&, void* ownerUID, JITCompilationEffort);
+    void allocate(MacroAssembler&, JITCompilationEffort);
 
-    JS_EXPORT_PRIVATE void linkCode(MacroAssembler&, void* ownerUID, JITCompilationEffort);
+    JS_EXPORT_PRIVATE void linkCode(MacroAssembler&, JITCompilationEffort);
 #if ENABLE(BRANCH_COMPACTION)
     template <typename InstructionType>
-    void copyCompactAndLinkCode(MacroAssembler&, void* ownerUID, JITCompilationEffort);
+    void copyCompactAndLinkCode(MacroAssembler&, JITCompilationEffort);
 #endif
 
     void performFinalization();
@@ -342,11 +354,14 @@ private:
     bool m_shouldPerformBranchCompaction { true };
 #endif
     bool m_didAllocate;
-    MacroAssemblerCodePtr<LinkBufferPtrTag> m_code;
 #ifndef NDEBUG
     bool m_completed;
 #endif
+#if ASSERT_ENABLED
+    bool m_isJumpIsland { false };
+#endif
     bool m_alreadyDisassembled { false };
+    MacroAssemblerCodePtr<LinkBufferPtrTag> m_code;
     Vector<RefPtr<SharedTask<void(LinkBuffer&)>>> m_linkTasks;
 };
 
@@ -393,6 +408,16 @@ bool shouldDumpDisassemblyFor(CodeBlock*);
 
 #define FINALIZE_REGEXP_CODE(linkBufferReference, resultPtrTag, dataLogFArgumentsForHeading)  \
     FINALIZE_CODE_IF(JSC::Options::asyncDisassembly() || JSC::Options::dumpDisassembly() || Options::dumpRegExpDisassembly(), linkBufferReference, resultPtrTag, dataLogFArgumentsForHeading)
+
+bool shouldDumpDisassemblyFor(Wasm::CompilationMode);
+
+#define FINALIZE_WASM_CODE(linkBufferReference, resultPtrTag, ...)  \
+    FINALIZE_CODE_IF((JSC::Options::asyncDisassembly() || JSC::Options::dumpDisassembly() || Options::dumpWasmDisassembly()), linkBufferReference, resultPtrTag, __VA_ARGS__)
+
+#define FINALIZE_WASM_CODE_FOR_MODE(mode, linkBufferReference, resultPtrTag, ...)  \
+    FINALIZE_CODE_IF(shouldDumpDisassemblyFor(mode), linkBufferReference, resultPtrTag, __VA_ARGS__)
+
+
 
 } // namespace JSC
 

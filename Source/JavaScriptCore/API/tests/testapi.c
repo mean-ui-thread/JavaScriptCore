@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2017 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2020 Apple Inc.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,7 +23,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define ASSERT_DISABLED 0
+#define ASSERT_ENABLED 1
 #include "config.h"
 
 #if USE(CF)
@@ -33,18 +33,24 @@
 #endif
 
 #include "JSBasePrivate.h"
-#include "JSContextRefPrivate.h"
 #include "JSHeapFinalizerPrivate.h"
 #include "JSMarkingConstraintPrivate.h"
 #include "JSObjectRefPrivate.h"
 #include "JSScriptRefPrivate.h"
 #include "JSStringRefPrivate.h"
 #include "JSWeakPrivate.h"
+#if !OS(WINDOWS)
+#include <libgen.h>
+#endif
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#if !OS(WINDOWS)
+#include <unistd.h>
+#endif
 #include <wtf/Assertions.h>
 
 #if OS(WINDOWS)
@@ -67,9 +73,10 @@
 #endif
 
 #if JSC_OBJC_API_ENABLED
-void testObjectiveCAPI(void);
+void testObjectiveCAPI(const char*);
 #endif
 
+void configureJSCForTesting(void);
 int testCAPIViaCpp(const char* filter);
 
 bool assertTrue(bool value, const char* message);
@@ -1380,11 +1387,22 @@ int main(int argc, char* argv[])
     SetErrorMode(0);
 #endif
 
-#if JSC_OBJC_API_ENABLED
-    testObjectiveCAPI();
+    configureJSCForTesting();
+
+#if !OS(WINDOWS)
+    char resolvedPath[PATH_MAX];
+    if (!realpath(argv[0], resolvedPath))
+        fprintf(stdout, "Could not get the absolute pathname for: %s\n", argv[0]);
+    char* newCWD = dirname(resolvedPath);
+    if (chdir(newCWD))
+        fprintf(stdout, "Could not chdir to: %s\n", newCWD);
 #endif
 
     const char* filter = argc > 1 ? argv[1] : NULL;
+#if JSC_OBJC_API_ENABLED
+    testObjectiveCAPI(filter);
+#endif
+
     RELEASE_ASSERT(!testCAPIViaCpp(filter));
     if (filter)
         return 0;
@@ -1979,7 +1997,7 @@ int main(int argc, char* argv[])
     JSObjectMakeConstructor(context, nullClass, 0);
     JSClassRelease(nullClass);
 
-    const char* scriptPath = "testapi.js";
+    const char* scriptPath = "./testapiScripts/testapi.js";
     char* scriptUTF8 = createStringWithContentsOfFile(scriptPath);
     if (!scriptUTF8) {
         printf("FAIL: Test script could not be loaded.\n");
@@ -2082,13 +2100,12 @@ int main(int argc, char* argv[])
         }
         JSGlobalContextRelease(context);
     }
-    failed = testTypedArrayCAPI() || failed;
-    failed = testExecutionTimeLimit() || failed;
-    failed = testFunctionOverrides() || failed;
-    failed = testGlobalContextWithFinalizer() || failed;
-    failed = testPingPongStackOverflow() || failed;
-    failed = testJSONParse() || failed;
-    failed = testJSObjectGetProxyTarget() || failed;
+    failed |= testTypedArrayCAPI();
+    failed |= testFunctionOverrides();
+    failed |= testGlobalContextWithFinalizer();
+    failed |= testPingPongStackOverflow();
+    failed |= testJSONParse();
+    failed |= testJSObjectGetProxyTarget();
 
     // Clear out local variables pointing at JSObjectRefs to allow their values to be collected
     function = NULL;
@@ -2138,6 +2155,14 @@ int main(int argc, char* argv[])
     globalObjectPrivatePropertyTest();
 
     failed = finalizeMultithreadedMultiVMExecutionTest() || failed;
+
+    // Don't run this till after the MultithreadedMultiVMExecutionTest has finished.
+    // This is because testExecutionTimeLimit() modifies JIT options at runtime
+    // as part of its testing. This can wreak havoc on the rest of the system that
+    // expects the options to be frozen. Ideally, we'll find a way for testExecutionTimeLimit()
+    // to do its work without changing JIT options, but that is not easy to do.
+    // For now, we'll just run it here at the end as a workaround.
+    failed |= testExecutionTimeLimit();
 
     if (failed) {
         printf("FAIL: Some tests failed.\n");

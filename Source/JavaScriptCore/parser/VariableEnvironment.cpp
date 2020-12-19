@@ -29,6 +29,13 @@
 
 namespace JSC {
 
+VariableEnvironment& VariableEnvironment::operator=(const VariableEnvironment& other)
+{
+    VariableEnvironment env(other);
+    swap(env);
+    return *this;
+}
+
 void VariableEnvironment::markVariableAsCapturedIfDefined(const RefPtr<UniquedStringImpl>& identifier)
 {
     auto findResult = m_map.find(identifier);
@@ -80,6 +87,7 @@ void VariableEnvironment::swap(VariableEnvironment& other)
 {
     m_map.swap(other.m_map);
     m_isEverythingCaptured = other.m_isEverythingCaptured;
+    m_rareData.swap(other.m_rareData);
 }
 
 void VariableEnvironment::markVariableAsImported(const RefPtr<UniquedStringImpl>& identifier)
@@ -100,7 +108,7 @@ CompactVariableEnvironment::CompactVariableEnvironment(const VariableEnvironment
     : m_isEverythingCaptured(env.isEverythingCaptured())
 {
     Vector<std::pair<UniquedStringImpl*, VariableEnvironmentEntry>, 32> sortedEntries;
-    sortedEntries.reserveInitialCapacity(env.size());
+    sortedEntries.reserveInitialCapacity(env.mapSize());
     for (auto& pair : env)
         sortedEntries.append({ pair.key.get(), pair.value });
 
@@ -154,12 +162,21 @@ VariableEnvironment CompactVariableEnvironment::toVariableEnvironment() const
 CompactVariableMap::Handle CompactVariableMap::get(const VariableEnvironment& env)
 {
     auto* environment = new CompactVariableEnvironment(env);
+    bool isNewEntry;
+    auto handle = get(environment, isNewEntry);
+    if (!isNewEntry)
+        delete environment;
+    return handle;
+}
+
+CompactVariableMap::Handle CompactVariableMap::get(CompactVariableEnvironment* environment, bool& isNewEntry)
+{
     CompactVariableMapKey key { *environment };
     auto addResult = m_map.add(key, 1);
+    isNewEntry = addResult.isNewEntry;
     if (addResult.isNewEntry)
         return CompactVariableMap::Handle(*environment, *this);
 
-    delete environment;
     ++addResult.iterator->value;
     return CompactVariableMap::Handle(addResult.iterator->key.environment(), *this);
 }
@@ -184,26 +201,20 @@ CompactVariableMap::Handle::~Handle()
 }
 
 CompactVariableMap::Handle::Handle(const CompactVariableMap::Handle& other)
+    : m_environment(other.m_environment)
+    , m_map(other.m_map)
 {
-    *this = other;
+    if (m_map) {
+        auto iter = m_map->m_map.find(CompactVariableMapKey { *m_environment });
+        RELEASE_ASSERT(iter != m_map->m_map.end());
+        ++iter->value;
+    }
 }
 
-CompactVariableMap::Handle& CompactVariableMap::Handle::operator=(const Handle& other)
-{
-    m_map = other.m_map;
-    m_environment = other.m_environment;
-
-    if (!m_map) {
-        ASSERT(!m_environment);
-        // This happens if `other` were moved into a different handle.
-        return *this;
-    }
-
-    auto iter = m_map->m_map.find(CompactVariableMapKey { *m_environment });
-    RELEASE_ASSERT(iter != m_map->m_map.end());
-    ++iter->value;
-
-    return *this;
+CompactVariableMap::Handle::Handle(CompactVariableEnvironment& environment, CompactVariableMap& map)
+    : m_environment(&environment)
+    , m_map(&map)
+{ 
 }
 
 } // namespace JSC

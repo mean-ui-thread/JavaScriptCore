@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,18 +26,20 @@
 #include "config.h"
 
 #include "APICast.h"
-#include "JSCJSValueInlines.h"
-#include "JSObject.h"
-
-#include <JavaScriptCore/JSObjectRefPrivate.h>
+#include "JSGlobalObjectInlines.h"
+#include "MarkedJSValueRefArray.h"
+#include <JavaScriptCore/JSContextRefPrivate.h>
 #include <JavaScriptCore/JavaScript.h>
 #include <wtf/DataLog.h>
 #include <wtf/Expected.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/NumberOfCores.h>
 #include <wtf/Vector.h>
+#include <wtf/text/StringCommon.h>
 
+extern "C" void configureJSCForTesting();
 extern "C" int testCAPIViaCpp(const char* filter);
+extern "C" void JSSynchronousGarbageCollectForDebugging(JSContextRef);
 
 class APIString {
     WTF_MAKE_NONCOPYABLE(APIString);
@@ -69,9 +71,9 @@ public:
         APIString print("print");
         JSObjectRef printFunction = JSObjectMakeFunctionWithCallback(m_context, print, [] (JSContextRef ctx, JSObjectRef, JSObjectRef, size_t argumentCount, const JSValueRef arguments[], JSValueRef*) {
 
-            JSC::ExecState* exec = toJS(ctx);
+            JSC::JSGlobalObject* globalObject = toJS(ctx);
             for (unsigned i = 0; i < argumentCount; i++)
-                dataLog(toJS(exec, arguments[i]));
+                dataLog(toJS(globalObject, arguments[i]));
             dataLogLn();
             return JSValueMakeUndefined(ctx);
         });
@@ -85,7 +87,7 @@ public:
     }
 
     operator JSGlobalContextRef() { return m_context; }
-    operator JSC::ExecState*() { return toJS(m_context); }
+    operator JSC::JSGlobalObject*() { return toJS(m_context); }
 
 private:
     JSGlobalContextRef m_context;
@@ -129,12 +131,18 @@ public:
 
     void basicSymbol();
     void symbolsTypeof();
+    void symbolsDescription();
     void symbolsGetPropertyForKey();
     void symbolsSetPropertyForKey();
     void symbolsHasPropertyForKey();
     void symbolsDeletePropertyForKey();
     void promiseResolveTrue();
     void promiseRejectTrue();
+    void promiseUnhandledRejection();
+    void promiseUnhandledRejectionFromUnhandledRejectionCallback();
+    void promiseEarlyHandledRejections();
+    void topCallFrameAccess();
+    void markedJSValueArrayAndGC();
 
     int failed() const { return m_failed; }
 
@@ -195,6 +203,30 @@ TestAPI::ScriptResult TestAPI::callFunction(const char* functionSource, Argument
     RELEASE_ASSERT(exception);
     return Unexpected<JSValueRef>(exception);
 }
+
+#if COMPILER(MSVC)
+template<>
+TestAPI::ScriptResult TestAPI::callFunction(const char* functionSource)
+{
+    JSValueRef function;
+    {
+        ScriptResult functionResult = evaluateScript(functionSource);
+        if (!functionResult)
+            return functionResult;
+        function = functionResult.value();
+    }
+
+    JSValueRef exception = nullptr;
+    if (JSObjectRef functionObject = JSValueToObject(context, function, &exception)) {
+        JSValueRef result = JSObjectCallAsFunction(context, functionObject, functionObject, 0, nullptr, &exception);
+        if (!exception)
+            return ScriptResult(result);
+    }
+
+    RELEASE_ASSERT(exception);
+    return Unexpected<JSValueRef>(exception);
+}
+#endif
 
 template<typename... ArgumentTypes>
 bool TestAPI::functionReturnsTrue(const char* functionSource, ArgumentTypes... arguments)
@@ -267,6 +299,7 @@ APIVector<JSValueRef> TestAPI::interestingKeys()
 }
 
 static const char* isSymbolFunction = "(function isSymbol(symbol) { return typeof(symbol) === 'symbol'; })";
+static const char* getSymbolDescription = "(function getSymbolDescription(symbol) { return symbol.description; })";
 static const char* getFunction = "(function get(object, key) { return object[key]; })";
 static const char* setFunction = "(function set(object, key, value) { object[key] = value; })";
 
@@ -280,9 +313,30 @@ void TestAPI::basicSymbol()
 
 void TestAPI::symbolsTypeof()
 {
-    APIString description("dope");
-    JSValueRef symbol = JSValueMakeSymbol(context, description);
-    check(functionReturnsTrue(isSymbolFunction, symbol), "JSValueMakeSymbol makes a symbol value");
+    {
+        JSValueRef symbol = JSValueMakeSymbol(context, nullptr);
+        check(functionReturnsTrue(isSymbolFunction, symbol), "JSValueMakeSymbol makes a symbol value");
+    }
+    {
+        APIString description("dope");
+        JSValueRef symbol = JSValueMakeSymbol(context, description);
+        check(functionReturnsTrue(isSymbolFunction, symbol), "JSValueMakeSymbol makes a symbol value");
+    }
+}
+
+void TestAPI::symbolsDescription()
+{
+    {
+        JSValueRef symbol = JSValueMakeSymbol(context, nullptr);
+        auto result = callFunction(getSymbolDescription, symbol);
+        check(JSValueIsStrictEqual(context, result.value(), JSValueMakeUndefined(context)), "JSValueMakeSymbol with nullptr description produces a symbol value without description");
+    }
+    {
+        APIString description("dope");
+        JSValueRef symbol = JSValueMakeSymbol(context, description);
+        auto result = callFunction(getSymbolDescription, symbol);
+        check(JSValueIsStrictEqual(context, result.value(), JSValueMakeString(context, description)), "JSValueMakeSymbol with description string produces a symbol value with description");
+    }
 }
 
 void TestAPI::symbolsGetPropertyForKey()
@@ -430,7 +484,7 @@ void TestAPI::promiseResolveTrue()
 
     auto trueValue = JSValueMakeBoolean(context, true);
     JSObjectCallAsFunction(context, resolve, resolve, 1, &trueValue, &exception);
-    check(!exception, "No exception should be thrown resolve promise");
+    check(!exception, "No exception should be thrown resolving promise");
     check(passedTrueCalled, "then response function should have been called.");
 }
 
@@ -455,7 +509,7 @@ void TestAPI::promiseRejectTrue()
 
     APIString catchString("catch");
     JSValueRef catchFunction = JSObjectGetProperty(context, promise, catchString, &exception);
-    check(!exception && catchFunction && JSValueIsObject(context, catchFunction), "Promise should have a then object property");
+    check(!exception && catchFunction && JSValueIsObject(context, catchFunction), "Promise should have a catch object property");
 
     JSValueRef passedTrueFunction = JSObjectMakeFunctionWithCallback(context, trueString, passedTrue);
     JSObjectCallAsFunction(context, const_cast<JSObjectRef>(catchFunction), promise, 1, &passedTrueFunction, &exception);
@@ -463,8 +517,138 @@ void TestAPI::promiseRejectTrue()
 
     auto trueValue = JSValueMakeBoolean(context, true);
     JSObjectCallAsFunction(context, reject, reject, 1, &trueValue, &exception);
-    check(!exception, "No exception should be thrown resolve promise");
-    check(passedTrueCalled, "then response function should have been called.");
+    check(!exception, "No exception should be thrown rejecting promise");
+    check(passedTrueCalled, "catch response function should have been called.");
+}
+
+void TestAPI::promiseUnhandledRejection()
+{
+    JSObjectRef reject = nullptr;
+    JSValueRef exception = nullptr;
+    static auto promise = JSObjectMakeDeferredPromise(context, nullptr, &reject, &exception);
+    check(!exception, "creating a (reject-only) deferred promise should not throw");
+    static auto reason = JSValueMakeString(context, APIString("reason"));
+
+    static TestAPI* tester = this;
+    static bool callbackCalled = false;
+    auto callback = [](JSContextRef ctx, JSObjectRef, JSObjectRef, size_t argumentCount, const JSValueRef arguments[], JSValueRef*) -> JSValueRef {
+        tester->check(argumentCount && JSValueIsStrictEqual(ctx, arguments[0], promise), "callback should receive rejected promise as first argument");
+        tester->check(argumentCount > 1 && JSValueIsStrictEqual(ctx, arguments[1], reason), "callback should receive rejection reason as second argument");
+        tester->check(argumentCount == 2, "callback should not receive a third argument");
+        callbackCalled = true;
+        return JSValueMakeUndefined(ctx);
+    };
+    auto callbackFunction = JSObjectMakeFunctionWithCallback(context, APIString("callback"), callback);
+
+    JSGlobalContextSetUnhandledRejectionCallback(context, callbackFunction, &exception);
+    check(!exception, "setting unhandled rejection callback should not throw");
+
+    JSObjectCallAsFunction(context, reject, reject, 1, &reason, &exception);
+    check(!exception && callbackCalled, "unhandled rejection callback should be called upon unhandled rejection");
+}
+
+void TestAPI::promiseUnhandledRejectionFromUnhandledRejectionCallback()
+{
+    static JSObjectRef reject;
+    static JSValueRef exception = nullptr;
+    JSObjectMakeDeferredPromise(context, nullptr, &reject, &exception);
+    check(!exception, "creating a (reject-only) deferred promise should not throw");
+
+    static auto callbackCallCount = 0;
+    auto callback = [](JSContextRef ctx, JSObjectRef, JSObjectRef, size_t, const JSValueRef[], JSValueRef*) -> JSValueRef {
+        if (!callbackCallCount)
+            JSObjectCallAsFunction(ctx, reject, reject, 0, nullptr, &exception);
+        callbackCallCount++;
+        return JSValueMakeUndefined(ctx);
+    };
+    auto callbackFunction = JSObjectMakeFunctionWithCallback(context, APIString("callback"), callback);
+
+    JSGlobalContextSetUnhandledRejectionCallback(context, callbackFunction, &exception);
+    check(!exception, "setting unhandled rejection callback should not throw");
+
+    callFunction("(function () { Promise.reject(); })");
+    check(!exception && callbackCallCount == 2, "unhandled rejection from unhandled rejection callback should also trigger the callback");
+}
+
+void TestAPI::promiseEarlyHandledRejections()
+{
+    JSValueRef exception = nullptr;
+    
+    static bool callbackCalled = false;
+    auto callback = [](JSContextRef ctx, JSObjectRef, JSObjectRef, size_t, const JSValueRef[], JSValueRef*) -> JSValueRef {
+        callbackCalled = true;
+        return JSValueMakeUndefined(ctx);
+    };
+    auto callbackFunction = JSObjectMakeFunctionWithCallback(context, APIString("callback"), callback);
+
+    JSGlobalContextSetUnhandledRejectionCallback(context, callbackFunction, &exception);
+    check(!exception, "setting unhandled rejection callback should not throw");
+
+    callFunction("(function () { const p = Promise.reject(); p.catch(() => {}); })");
+    check(!callbackCalled, "unhandled rejection callback should not be called for synchronous early-handled rejection");
+
+    callFunction("(function () { const p = Promise.reject(); Promise.resolve().then(() => { p.catch(() => {}); }); })");
+    check(!callbackCalled, "unhandled rejection callback should not be called for asynchronous early-handled rejection");
+}
+
+void TestAPI::topCallFrameAccess()
+{
+    {
+        JSObjectRef function = JSValueToObject(context, evaluateScript("(function () { })").value(), nullptr);
+        APIString argumentsString("arguments");
+        auto arguments = JSObjectGetProperty(context, function, argumentsString, nullptr);
+        check(JSValueIsNull(context, arguments), "vm.topCallFrame access from C++ world should use nullptr internally for arguments");
+    }
+    {
+        JSObjectRef arguments = JSValueToObject(context, evaluateScript("(function ok(v) { return ok.arguments; })(42)").value(), nullptr);
+        check(!JSValueIsNull(context, arguments), "vm.topCallFrame is materialized and we found the caller function's arguments");
+    }
+    {
+        JSObjectRef function = JSValueToObject(context, evaluateScript("(function () { })").value(), nullptr);
+        APIString callerString("caller");
+        auto caller = JSObjectGetProperty(context, function, callerString, nullptr);
+        check(JSValueIsNull(context, caller), "vm.topCallFrame access from C++ world should use nullptr internally for caller");
+    }
+    {
+        JSObjectRef caller = JSValueToObject(context, evaluateScript("(function () { return (function ok(v) { return ok.caller; })(42); })()").value(), nullptr);
+        check(!JSValueIsNull(context, caller), "vm.topCallFrame is materialized and we found the caller function's caller");
+    }
+    {
+        JSObjectRef caller = JSValueToObject(context, evaluateScript("(function ok(v) { return ok.caller; })(42)").value(), nullptr);
+        check(JSValueIsNull(context, caller), "vm.topCallFrame is materialized and we found the caller function's caller, but the caller is global code");
+    }
+}
+
+void TestAPI::markedJSValueArrayAndGC()
+{
+    auto testMarkedJSValueArray = [&](unsigned count) {
+        auto* globalObject = toJS(context);
+        JSC::JSLockHolder locker(globalObject->vm());
+        JSC::MarkedJSValueRefArray values(context, count);
+        for (unsigned index = 0; index < count; ++index) {
+            String target = makeString("Prefix", index);
+            auto holder = OpaqueJSString::tryCreate(target);
+            JSValueRef string = JSValueMakeString(context, holder.get());
+            values[index] = string;
+        }
+        JSSynchronousGarbageCollectForDebugging(context);
+        bool ok = true;
+        for (unsigned index = 0; index < count; ++index) {
+            String target = makeString("Prefix", index);
+            auto holder = OpaqueJSString::tryCreate(target);
+            JSValueRef string = JSValueMakeString(context, holder.get());
+            if (!JSValueIsStrictEqual(context, values[index], string))
+                ok = false;
+        }
+        check(ok, "Held JSString should be alive and correct.");
+    };
+    testMarkedJSValueArray(4);
+    testMarkedJSValueArray(1000);
+}
+
+void configureJSCForTesting()
+{
+    JSC::Config::configureForTesting();
 }
 
 #define RUN(test) do {                                 \
@@ -484,22 +668,24 @@ int testCAPIViaCpp(const char* filter)
 
     Deque<RefPtr<SharedTask<void(TestAPI&)>>> tasks;
 
-#if OS(DARWIN)
     auto shouldRun = [&] (const char* testName) -> bool {
-        return !filter || !!strcasestr(testName, filter);
+        return !filter || WTF::findIgnoringASCIICaseWithoutLength(testName, filter) != WTF::notFound;
     };
-#else
-    auto shouldRun = [] (const char*) -> bool { return true; };
-#endif
 
+    RUN(topCallFrameAccess());
     RUN(basicSymbol());
     RUN(symbolsTypeof());
+    RUN(symbolsDescription());
     RUN(symbolsGetPropertyForKey());
     RUN(symbolsSetPropertyForKey());
     RUN(symbolsHasPropertyForKey());
     RUN(symbolsDeletePropertyForKey());
     RUN(promiseResolveTrue());
     RUN(promiseRejectTrue());
+    RUN(promiseUnhandledRejection());
+    RUN(promiseUnhandledRejectionFromUnhandledRejectionCallback());
+    RUN(promiseEarlyHandledRejections());
+    RUN(markedJSValueArrayAndGC());
 
     if (tasks.isEmpty()) {
         dataLogLn("Filtered all tests: ERROR");

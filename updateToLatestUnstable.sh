@@ -17,7 +17,6 @@ if [ -d ${WEBKIT_DIR} ]; then
 	cp -R ${WEBKIT_DIR}/* .
 	pushd Source/ThirdParty
 	git checkout gtest/CMakeLists.txt
-	svn checkout https://github.com/WebKit/webkit/trunk/Source/ThirdParty/capstone
 	popd
 fi
 

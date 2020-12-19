@@ -27,14 +27,16 @@
 
 #include "JSBase.h"
 #include "JSCGLibWrapperObject.h"
-#include "JSCPoison.h"
 #include "JSGlobalObject.h"
 
 namespace JSC {
 
 class JSAPIWrapperGlobalObject : public JSGlobalObject {
 public:
-    typedef JSGlobalObject Base;
+    using Base = JSGlobalObject;
+
+    template<typename, SubspaceAccess>
+    static void subspaceFor(VM&) { RELEASE_ASSERT_NOT_REACHED(); }
 
     void finishCreation(VM&);
     static void visitChildren(JSCell*, JSC::SlotVisitor&);
