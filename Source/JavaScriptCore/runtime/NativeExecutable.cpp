@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,17 +24,9 @@
  */
 
 #include "config.h"
+#include "NativeExecutable.h"
 
-#include "BatchedTransitionOptimizer.h"
-#include "CodeBlock.h"
-#include "Debugger.h"
-#include "JIT.h"
 #include "JSCInlines.h"
-#include "LLIntEntrypoint.h"
-#include "Parser.h"
-#include "TypeProfiler.h"
-#include "VMInlines.h"
-#include <wtf/CommaPrinter.h>
 
 namespace JSC {
 
@@ -94,10 +86,10 @@ Intrinsic NativeExecutable::intrinsic() const
 CodeBlockHash NativeExecutable::hashFor(CodeSpecializationKind kind) const
 {
     if (kind == CodeForCall)
-        return CodeBlockHash(m_function.bits());
+        return CodeBlockHash(bitwise_cast<uintptr_t>(m_function));
 
     RELEASE_ASSERT(kind == CodeForConstruct);
-    return CodeBlockHash(m_constructor.bits());
+    return CodeBlockHash(bitwise_cast<uintptr_t>(m_constructor));
 }
 
 } // namespace JSC

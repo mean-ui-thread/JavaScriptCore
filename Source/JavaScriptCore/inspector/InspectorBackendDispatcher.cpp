@@ -30,7 +30,6 @@
 #include "InspectorFrontendRouter.h"
 #include <wtf/JSONValues.h>
 #include <wtf/SetForScope.h>
-#include <wtf/text/CString.h>
 #include <wtf/text/WTFString.h>
 
 namespace Inspector {
@@ -268,14 +267,6 @@ void BackendDispatcher::reportProtocolError(Optional<long> relatedRequestId, Com
         m_currentRequestId = relatedRequestId;
 
     m_protocolErrors.append(std::tuple<CommonErrorCode, String>(errorCode, errorMessage));
-}
-
-void BackendDispatcher::reportProtocolError(WTF::DeprecatedOptional<long> relatedRequestId, CommonErrorCode errorCode, const String& errorMessage)
-{
-    if (relatedRequestId)
-        reportProtocolError(relatedRequestId.value(), errorCode, errorMessage);
-    else
-        reportProtocolError(WTF::nullopt, errorCode, errorMessage);
 }
 
 template<typename T>

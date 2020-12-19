@@ -32,7 +32,7 @@
 
 namespace JSC {
 
-struct CodeOrigin;
+class CodeOrigin;
 
 namespace DFG {
 
@@ -237,6 +237,7 @@ public:
         return ArrayMode(type, arrayClass(), speculation(), conversion, action());
     }
     
+    static constexpr SpeculatedType unusedIndexSpeculatedType = SpecInt32Only;
     ArrayMode refine(Graph&, Node*, SpeculatedType base, SpeculatedType index, SpeculatedType value = SpecNone) const;
     
     bool alreadyChecked(Graph&, Node*, const AbstractValue&) const;
@@ -429,22 +430,24 @@ public:
         switch (type()) {
         case Array::Generic:
             return ALL_ARRAY_MODES;
+        case Array::Undecided:
+            return arrayModesWithIndexingShapes(UndecidedShape);
         case Array::Int32:
-            result = arrayModesWithIndexingShape(Int32Shape);
+            result = arrayModesWithIndexingShapes(Int32Shape);
             break;
         case Array::Double:
-            result = arrayModesWithIndexingShape(DoubleShape);
+            result = arrayModesWithIndexingShapes(DoubleShape);
             break;
         case Array::Contiguous:
-            result = arrayModesWithIndexingShape(ContiguousShape);
+            result = arrayModesWithIndexingShapes(ContiguousShape);
             break;
         case Array::ArrayStorage:
-            return arrayModesWithIndexingShape(ArrayStorageShape);
+            return arrayModesWithIndexingShapes(ArrayStorageShape);
         case Array::SlowPutArrayStorage:
             return arrayModesWithIndexingShapes(SlowPutArrayStorageShape, ArrayStorageShape);
         case Array::DirectArguments:
         case Array::ScopedArguments:
-            return arrayModesWithIndexingShapes(ArrayStorageShape, NonArray);
+            return arrayModesWithIndexingShapes(ArrayStorageShape, SlowPutArrayStorageShape, NonArray);
         case Array::Int8Array:
             return Int8ArrayMode;
         case Array::Int16Array:
@@ -512,7 +515,7 @@ private:
         u.asWord = word;
     }
     
-    ArrayModes arrayModesWithIndexingShape(IndexingType shape) const
+    ArrayModes arrayModesWithIndexingShapes(IndexingType shape) const
     {
         switch (arrayClass()) {
         case Array::NonArray:
@@ -531,16 +534,16 @@ private:
             if (hasInt32(shape) || hasDouble(shape) || hasContiguous(shape))
                 return asArrayModesIgnoringTypedArrays(shape) | asArrayModesIgnoringTypedArrays(shape | IsArray) | asArrayModesIgnoringTypedArrays(shape | IsArray | CopyOnWrite);
             return asArrayModesIgnoringTypedArrays(shape) | asArrayModesIgnoringTypedArrays(shape | IsArray);
-        default:
-            // This is only necessary for C++ compilers that don't understand enums.
-            return 0;
         }
+        // This is only necessary for C++ compilers that don't understand enums.
+        return 0;
     }
     
-    ArrayModes arrayModesWithIndexingShapes(IndexingType shape1, IndexingType shape2) const
+    template <typename... Args>
+    ArrayModes arrayModesWithIndexingShapes(IndexingType shape1, Args... args) const
     {
-        ArrayModes arrayMode1 = arrayModesWithIndexingShape(shape1);
-        ArrayModes arrayMode2 = arrayModesWithIndexingShape(shape2);
+        ArrayModes arrayMode1 = arrayModesWithIndexingShapes(shape1);
+        ArrayModes arrayMode2 = arrayModesWithIndexingShapes(args...);
         return arrayMode1 | arrayMode2;
     }
 

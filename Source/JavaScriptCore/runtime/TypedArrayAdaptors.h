@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -45,6 +45,7 @@ struct IntegralTypedArrayAdaptor {
 
     static JSValue toJSValue(Type value)
     {
+        static_assert(!std::is_floating_point<Type>::value, "");
         return jsNumber(value);
     }
     
@@ -193,15 +194,15 @@ typedef GenericTypedArrayView<Float32Adaptor> Float32Array;
 typedef GenericTypedArrayView<Float64Adaptor> Float64Array;
 
 template<typename Adaptor> class JSGenericTypedArrayView;
-typedef JSGenericTypedArrayView<Int8Adaptor> JSInt8Array;
-typedef JSGenericTypedArrayView<Int16Adaptor> JSInt16Array;
-typedef JSGenericTypedArrayView<Int32Adaptor> JSInt32Array;
-typedef JSGenericTypedArrayView<Uint8Adaptor> JSUint8Array;
-typedef JSGenericTypedArrayView<Uint8ClampedAdaptor> JSUint8ClampedArray;
-typedef JSGenericTypedArrayView<Uint16Adaptor> JSUint16Array;
-typedef JSGenericTypedArrayView<Uint32Adaptor> JSUint32Array;
-typedef JSGenericTypedArrayView<Float32Adaptor> JSFloat32Array;
-typedef JSGenericTypedArrayView<Float64Adaptor> JSFloat64Array;
+using JSInt8Array = JSGenericTypedArrayView<Int8Adaptor>;
+using JSInt16Array = JSGenericTypedArrayView<Int16Adaptor>;
+using JSInt32Array = JSGenericTypedArrayView<Int32Adaptor>;
+using JSUint8Array = JSGenericTypedArrayView<Uint8Adaptor>;
+using JSUint8ClampedArray = JSGenericTypedArrayView<Uint8ClampedAdaptor>;
+using JSUint16Array = JSGenericTypedArrayView<Uint16Adaptor>;
+using JSUint32Array = JSGenericTypedArrayView<Uint32Adaptor>;
+using JSFloat32Array = JSGenericTypedArrayView<Float32Adaptor>;
+using JSFloat64Array = JSGenericTypedArrayView<Float64Adaptor>;
 
 struct Int8Adaptor : IntegralTypedArrayAdaptor<int8_t, Int8Array, JSInt8Array, TypeInt8> { };
 struct Int16Adaptor : IntegralTypedArrayAdaptor<int16_t, Int16Array, JSInt16Array, TypeInt16> { };

@@ -29,7 +29,6 @@
 
 #include "APICallbackFunction.h"
 #include "APICast.h"
-#include "IsoSubspacePerVM.h"
 #include "JSCClassPrivate.h"
 #include "JSCContextPrivate.h"
 #include "JSDestructibleObjectHeapCellType.h"
@@ -79,7 +78,7 @@ JSCCallbackFunction::JSCCallbackFunction(VM& vm, Structure* structure, Type type
 JSValueRef JSCCallbackFunction::call(JSContextRef callerContext, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
 {
     JSLockHolder locker(toJS(callerContext));
-    auto context = jscContextGetOrCreate(toGlobalRef(globalObject()->globalExec()));
+    auto context = jscContextGetOrCreate(toGlobalRef(globalObject()));
     auto* jsContext = jscContextGetJSContext(context.get());
 
     if (m_type == Type::Constructor) {
@@ -150,7 +149,7 @@ JSValueRef JSCCallbackFunction::call(JSContextRef callerContext, JSObjectRef thi
 JSObjectRef JSCCallbackFunction::construct(JSContextRef callerContext, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
 {
     JSLockHolder locker(toJS(callerContext));
-    auto context = jscContextGetOrCreate(toGlobalRef(globalObject()->globalExec()));
+    auto context = jscContextGetOrCreate(toGlobalRef(globalObject()));
     auto* jsContext = jscContextGetJSContext(context.get());
 
     if (m_returnType == G_TYPE_NONE) {
@@ -204,30 +203,23 @@ JSObjectRef JSCCallbackFunction::construct(JSContextRef callerContext, size_t ar
 
     switch (g_type_fundamental(G_VALUE_TYPE(&returnValue))) {
     case G_TYPE_POINTER:
+    case G_TYPE_BOXED:
     case G_TYPE_OBJECT:
-        if (auto* ptr = returnValue.data[0].v_pointer) {
-            auto* retval = jscClassGetOrCreateJSWrapper(m_class.get(), ptr);
-            g_value_unset(&returnValue);
-            return toRef(retval);
-        }
+        if (auto* ptr = returnValue.data[0].v_pointer)
+            return toRef(jscClassGetOrCreateJSWrapper(m_class.get(), context.get(), ptr));
         *exception = toRef(JSC::createTypeError(toJS(jsContext), "constructor returned null"_s));
         break;
     default:
         *exception = toRef(JSC::createTypeError(toJS(jsContext), makeString("invalid type ", g_type_name(G_VALUE_TYPE(&returnValue)), " returned by constructor")));
         break;
     }
+    g_value_unset(&returnValue);
     return nullptr;
 }
 
 void JSCCallbackFunction::destroy(JSCell* cell)
 {
     static_cast<JSCCallbackFunction*>(cell)->JSCCallbackFunction::~JSCCallbackFunction();
-}
-
-IsoSubspace* JSCCallbackFunction::subspaceForImpl(VM& vm)
-{
-    NeverDestroyed<IsoSubspacePerVM> perVM([] (VM& vm) -> IsoSubspacePerVM::SubspaceParameters { return ISO_SUBSPACE_PARAMETERS(vm.destructibleObjectHeapCellType.get(), JSCCallbackFunction); });
-    return &perVM.get().forVM(vm);
 }
 
 } // namespace JSC
