@@ -2,6 +2,19 @@ find_package(Threads REQUIRED)
 
 if (MSVC)
     include(OptionsMSVC)
+else ()
+    # CMake uses OBJECT libraries as a cross platform way of doing --whole-archive which is needed
+    # when compiling bmalloc/WTF into JavaScriptCore. However they were extremely limited prior to
+    # CMake 3.12 <https://gitlab.kitware.com/cmake/cmake/-/issues/18010>
+    #
+    # FIXME: Remove when cmake_minimum_required is raised https://bugs.webkit.org/show_bug.cgi?id=221727
+    if (CMAKE_VERSION VERSION_LESS 3.12)
+        message(FATAL_ERROR "CMake 3.12 or greater is required to compile JSCOnly")
+    endif ()
+
+    set(CMAKE_C_VISIBILITY_PRESET hidden)
+    set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+    set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 endif ()
 
 add_definitions(-DBUILDING_JSCONLY__)
@@ -12,13 +25,15 @@ set(PROJECT_VERSION_MICRO 0)
 set(PROJECT_VERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_MICRO})
 
 WEBKIT_OPTION_BEGIN()
-WEBKIT_OPTION_DEFINE(ENABLE_STATIC_JSC "Whether to build JavaScriptCore as a static library." PUBLIC OFF)
+WEBKIT_OPTION_DEFINE(ENABLE_STATIC_JSC "Whether to build JavaScriptCore as a static library." PUBLIC ON) # MATTC build statically
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_REMOTE_INSPECTOR PRIVATE OFF)
 if (WIN32)
     # FIXME: Enable FTL on Windows. https://bugs.webkit.org/show_bug.cgi?id=145366
     WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_FTL_JIT PRIVATE OFF)
     # FIXME: Port bmalloc to Windows. https://bugs.webkit.org/show_bug.cgi?id=143310
     WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_SYSTEM_MALLOC PRIVATE ON)
+    # FIXME: Enable WASM on Windows https://bugs.webkit.org/show_bug.cgi?id=222315
+    WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_WEBASSEMBLY PRIVATE OFF)
 endif ()
 
 WEBKIT_OPTION_END()
@@ -32,16 +47,16 @@ set(DEFAULT_EVENT_LOOP_TYPE "Generic")
 
 set(EVENT_LOOP_TYPE ${DEFAULT_EVENT_LOOP_TYPE} CACHE STRING "Implementation of event loop to be used in JavaScriptCore (one of ${ALL_EVENT_LOOP_TYPES})")
 
-set(ENABLE_API_TESTS OFF)
 set(ENABLE_WEBCORE OFF)
 set(ENABLE_WEBKIT_LEGACY OFF)
 set(ENABLE_WEBKIT OFF)
 set(ENABLE_WEBINSPECTORUI OFF)
+set(ENABLE_WEBGL OFF)
 
 if (WIN32)
     set(ENABLE_API_TESTS OFF)
 else ()
-    set(ENABLE_API_TESTS ON)
+    set(ENABLE_API_TESTS OFF) #MATTC Set to off
 endif ()
 
 if (WTF_CPU_ARM OR WTF_CPU_MIPS)
@@ -52,6 +67,8 @@ endif ()
 # https://bugs.webkit.org/show_bug.cgi?id=172862
 if (NOT ENABLE_STATIC_JSC AND NOT WIN32)
     set(JavaScriptCore_LIBRARY_TYPE SHARED)
+    set(bmalloc_LIBRARY_TYPE OBJECT)
+    set(WTF_LIBRARY_TYPE OBJECT)
 endif ()
 
 if (WIN32)
@@ -97,10 +114,8 @@ else ()
     SET_AND_EXPOSE_TO_BUILD(WTF_DEFAULT_EVENT_LOOP 0)
 endif ()
 
-hunter_add_package(ICU)
+hunter_add_package(ICU) # MATTC grap ICU from hunter
 find_package(ICU CONFIG REQUIRED)
-
 if (APPLE)
     add_definitions(-DU_DISABLE_RENAMING=1)
 endif ()
-

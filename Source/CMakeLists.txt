@@ -9,20 +9,11 @@ add_subdirectory(WTF)
 
 if (USE_CAPSTONE)
     add_subdirectory(ThirdParty/capstone)
-    include(GNUInstallDirs)
-    install(
-        TARGETS capstone
-        EXPORT "${TARGETS_EXPORT_NAME}"
-        LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-        ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-        INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
-    )
 endif ()
 
 add_subdirectory(JavaScriptCore)
 
-if (ENABLE_GRAPHICS_CONTEXT_GL)
+if (ENABLE_WEBGL)
     add_subdirectory(ThirdParty/ANGLE)
 endif ()
 

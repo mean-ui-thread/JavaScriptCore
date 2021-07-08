@@ -157,7 +157,6 @@ WEBKIT_COPY_FILES(bmalloc_CopyHeaders
     FILES ${bmalloc_PUBLIC_HEADERS}
 )
 
-WEBKIT_WRAP_SOURCELIST(${bmalloc_SOURCES})
 WEBKIT_FRAMEWORK(bmalloc)
 WEBKIT_FRAMEWORK_TARGET(bmalloc)
 
@@ -169,10 +168,10 @@ if (DEVELOPER_MODE AND (APPLE OR HAVE_MALLOC_TRIM))
     set_target_properties(mbmalloc PROPERTIES COMPILE_DEFINITIONS "BUILDING_mbmalloc")
 endif ()
 
-include(GNUInstallDirs)
+include(GNUInstallDirs) #MATTC
 
-install(
-    TARGETS bmalloc
+install(#MATTC
+    TARGETS bmalloc bmalloc_PostBuild
     EXPORT "${TARGETS_EXPORT_NAME}"
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"

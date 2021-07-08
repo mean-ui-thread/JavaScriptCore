@@ -16,7 +16,7 @@ if (NOT TARGET WebKit::JavaScriptCore)
     set(JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS_DIR ${JavaScriptCore_FRAMEWORK_HEADERS_DIR})
 
     target_include_directories(WebKit::JavaScriptCore INTERFACE
-        ${JavaScriptCore_FRAMEWORK_HEADERS_DIR}
-        ${JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS_DIR}
+        "$<BUILD_INTERFACE:${JavaScriptCore_FRAMEWORK_HEADERS_DIR}>" #MATTC BUILD_INTERFACE
+        "$<BUILD_INTERFACE:${JavaScriptCore_PRIVATE_FRAMEWORK_HEADERS_DIR}>" #MATTC BUILD_INTERFACE
     )
 endif ()
