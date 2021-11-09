@@ -6,7 +6,11 @@
 # latter in particular handles loading a bunch of shared CMake definitions
 # and loading the cross-compilation settings from CMAKE_TOOLCHAIN_FILE.
 #
-cmake_minimum_required(VERSION 3.10)
+# cmake_minimum_required is also set inside Source/${FRAMEWORK}/CMakeLists.txt
+# in support of the AppleWin internal build so this version should be kept in
+# sync across those files.
+#
+cmake_minimum_required(VERSION 3.12)
 
 include(cmake/Hunter/HunterGate.cmake)
 HunterGate(
@@ -27,7 +31,6 @@ set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")#MATTC
 set(project_config "${generated_dir}/${PROJECT_NAME}Config.cmake")#MATTC
 set(TARGETS_EXPORT_NAME "${PROJECT_NAME}Targets")#MATTC
 set(namespace "${PROJECT_NAME}::")#MATTC
-
 
 # -----------------------------------------------------------------------------
 # Common configuration
@@ -63,7 +66,6 @@ endif ()
 # -----------------------------------------------------------------------------
 PRINT_WEBKIT_OPTIONS()
 
-
 #MATTC
 ### Installation (https://github.com/forexample/package-example) {
 
@@ -89,4 +91,5 @@ install(
     DESTINATION "${config_install_dir}"
 )
 
- ### }
+### }
+

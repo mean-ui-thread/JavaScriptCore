@@ -19,6 +19,7 @@ set(bmalloc_SOURCES
     bmalloc/HeapConstants.cpp
     bmalloc/HeapKind.cpp
     bmalloc/IsoHeapImpl.cpp
+    bmalloc/IsoMallocFallback.cpp
     bmalloc/IsoPage.cpp
     bmalloc/IsoSharedHeap.cpp
     bmalloc/IsoSharedPage.cpp
@@ -87,6 +88,7 @@ set(bmalloc_PUBLIC_HEADERS
     bmalloc/IsoHeapImpl.h
     bmalloc/IsoHeapImplInlines.h
     bmalloc/IsoHeapInlines.h
+    bmalloc/IsoMallocFallback.h
     bmalloc/IsoPage.h
     bmalloc/IsoPageInlines.h
     bmalloc/IsoPageTrigger.h
@@ -178,3 +180,4 @@ install(#MATTC
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
     INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
 )
+
